@@ -49,7 +49,7 @@ def backward_pass(fx, fu, lx, lu, lxx, luu, lfxx, lfx, mu, second=None):
         VA, VB = Vxx @ A, Vxx @ B
         Qx = lx[t] + A.T @ Vx
         Qu = lu[t] + B.T @ Vx
-        Qxx = lxx + A.T @ VA
+        Qxx = lxx[t] + A.T @ VA
         Quu = luu + B.T @ VB
         Qux = B.T @ VA
         if second is not None:

@@ -41,13 +41,33 @@ class TVLQR:
 
 
 class ILQRMPC:
-    def __init__(self, model, cost, U_init, iters=2, method="ilqr"):
+    """Receding-horizon iLQR.
+
+    warm_start='feedback' (the default) builds the next initial guess by
+    rolling out the previous solution's local policy u = u* + K (x - x*) from
+    the newly measured state. warm_start='open_loop' replays the shifted
+    controls. On an unstable equilibrium the open-loop rollout amplifies the
+    state error over the horizon, so iLQR starts from a trajectory that has
+    already fallen over (see experiment E4).
+    """
+
+    def __init__(self, model, cost, U_init, iters=2, method="ilqr", warm_start="feedback"):
         self.model, self.cost, self.U = model, cost, np.array(U_init, float)
-        self.iters, self.method = iters, method
+        self.iters, self.method, self.warm_start = iters, method, warm_start
+        self.prev = None
 
     def act(self, t, x):
-        res = ilqr.solve(self.model, self.cost, x, self.U, method=self.method,
+        U0 = self.U
+        if self.warm_start == "feedback" and self.prev is not None:
+            p = self.prev
+            Xbar = np.concatenate([p.X[1:-1], p.X[-1:], p.X[-1:]])
+            _, Us, _ = ilqr.forward_pass(self.model, self.cost, x, Xbar, self.U, _shift(p.K),
+                                         np.zeros_like(self.U), np.zeros(1))
+            if np.all(np.isfinite(Us)):
+                U0 = Us[0]
+        res = ilqr.solve(self.model, self.cost, x, U0, method=self.method,
                          max_iter=self.iters, mu0=1e-3)
+        self.prev = res
         self.U = _shift(res.U)
         return res.U[0]
 

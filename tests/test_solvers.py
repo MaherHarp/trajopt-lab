@@ -109,6 +109,37 @@ class TestClosedLoop(unittest.TestCase):
         X, U, _ = mpc.run_closed_loop(sys_, mpc.TVLQR(plan), x0, len(U0))
         np.testing.assert_allclose(X, plan.X, atol=1e-10)
 
+    def test_feedback_warm_start_holds_unstable_equilibrium(self):
+        """Regression test for the E4 finding. Replaying shifted open-loop
+        controls from a perturbed upright state makes iLQR start from a fallen
+        trajectory. Rolling out the previous local policy does not."""
+        model, cost, _, _ = cartpole_swingup(running=1.0, periodic=True)
+        top = np.array([0.0, np.pi, 0.0, 0.0])
+        dev = {}
+        for warm in ("feedback", "open_loop"):
+            ctrl = mpc.ILQRMPC(model, cost, np.zeros((40, 1)), iters=2, warm_start=warm)
+            with np.errstate(all="ignore"):
+                X, _, _ = mpc.run_closed_loop(model, ctrl, top, 60, np.random.default_rng(3), 0.3, (2, 3))
+            dev[warm] = np.abs(mpc.wrap(X[:, 1] - np.pi)).max()
+        self.assertLess(dev["feedback"], 0.3)
+        self.assertGreater(dev["open_loop"], 1.0)
+
+    def test_periodic_angle_cost_derivatives(self):
+        _, cost, _, _ = cartpole_swingup(running=1.0, periodic=True)
+        rng = np.random.default_rng(2)
+        X, U = rng.normal(scale=3, size=(6, 4)), rng.normal(size=(5, 1))
+        lx, lu, lxx, _, lfxx, lfx = cost.derivatives(X, U)
+        h = 1e-30
+        for t in range(5):
+            for i in range(4):
+                E = np.zeros(4, complex); E[i] = 1j * h
+                self.assertAlmostEqual(lx[t, i], cost.running(X[t] + E, U[t]).imag / h, places=12)
+                g = lambda x: cost._state_derivs(x, cost.Q)[0]
+                np.testing.assert_allclose(lxx[t][:, i], g((X[t] + E)[None])[0].imag / h, atol=1e-12)
+        # 2*pi periodicity in the angle.
+        x = X[0].copy(); y = x.copy(); y[1] += 2 * np.pi
+        self.assertAlmostEqual(float(cost.terminal(x)), float(cost.terminal(y)), places=10)
+
     def test_ilqr_mpc_swings_up_pendulum(self):
         sys_, cost, x0, U0 = pendulum_swingup(T=60)
         ctrl = mpc.ILQRMPC(sys_, cost, U0, iters=3)

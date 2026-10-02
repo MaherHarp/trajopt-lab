@@ -15,10 +15,16 @@ def pendulum_swingup(T=100):
     return sys, cost, np.zeros(2), np.zeros((T, 1))
 
 
-def cartpole_swingup(T=80, **params):
+def cartpole_swingup(T=80, running=0.1, periodic=False, **params):
+    """``running`` scales the running state cost, and ``periodic`` makes the
+    angle cost 2*pi-periodic. Offline planning uses the plain quadratic: a
+    periodic cost has zero gradient at the hanging equilibrium, so planning
+    from rest would never break symmetry. Receding-horizon control needs both
+    options (see experiment E4)."""
     sys = CartPole(dt=0.05, **params)
-    cost = QuadraticCost(Q=np.diag([0.1, 0.1, 0.01, 0.01]), R=[[0.01]],
-                         Qf=np.diag([100.0, 100.0, 10.0, 10.0]), goal=[0.0, np.pi, 0.0, 0.0])
+    cost = QuadraticCost(Q=running * np.diag([1.0, 1.0, 0.1, 0.1]), R=[[0.01]],
+                         Qf=np.diag([100.0, 100.0, 10.0, 10.0]), goal=[0.0, np.pi, 0.0, 0.0],
+                         angle_idx=(1,) if periodic else ())
     return sys, cost, np.zeros(4), np.zeros((T, 1))
 
 
